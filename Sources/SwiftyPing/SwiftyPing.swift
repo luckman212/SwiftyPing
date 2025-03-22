@@ -246,11 +246,13 @@ public class SwiftyPing: NSObject {
     /// - Parameter configuration: A configuration object which can be used to customize pinging behavior.
     /// - Parameter queue: All responses are delivered through this dispatch queue.
     /// - Throws: A `PingError` if the given host could not be resolved.
+    /*
     public convenience init(host: String, configuration: PingConfiguration, queue: DispatchQueue) throws {
         let result = try Destination.getIPv4AddressFromHost(host: host)
         let destination = Destination(host: host, ipv4Address: result)
         try self.init(destination: destination, configuration: configuration, queue: queue)
     }
+    */
     
     /// Initializes a CFSocket.
     /// - Throws: If setting a socket options flag fails, throws a `PingError.socketOptionsSetError(:)`.
@@ -814,16 +816,6 @@ public extension Data {
     /// Expresses a chunk of data as an internet-style socket address.
     var socketAddressInternet: sockaddr_in {
         return withUnsafeBytes { $0.load(as: sockaddr_in.self) }
-    }
-}
-
-extension Destination {
-    public static func getIPv4AddressFromHost(host: String) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            HostResolver.resolveIPv4Address(for: host) { result in
-                continuation.resume(with: result)
-            }
-        }
     }
 }
 
