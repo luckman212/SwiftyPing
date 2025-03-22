@@ -806,6 +806,20 @@ public struct PingConfiguration {
 
 // MARK: - Data Extensions
 
+@available(macOS 12.0, *)
+public extension SwiftyPing {
+    /// An async factory method to create a SwiftyPing instance without blocking DNS resolution.
+    static func create(
+        host: String,
+        configuration: PingConfiguration,
+        queue: DispatchQueue
+    ) async throws -> SwiftyPing {
+        let ipData = try await Destination.getIPv4AddressFromHost(host: host)
+        let destination = Destination(host: host, ipv4Address: ipData)
+        return try SwiftyPing(destination: destination, configuration: configuration, queue: queue)
+    }
+}
+
 public extension Data {
     /// Expresses a chunk of data as a socket address.
     var socketAddress: sockaddr {
