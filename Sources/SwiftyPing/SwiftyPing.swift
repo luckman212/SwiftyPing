@@ -3,11 +3,13 @@
 //  SwiftyPing
 //
 //  Created by Sami Yrjänheikki on 6.8.2018.
+//  Modifications by luckman212 in 2025
 //  Copyright © 2018 Sami Yrjänheikki. All rights reserved.
 //
 
 import Foundation
 import Darwin
+import Network
 
 #if os(iOS)
 import UIKit
@@ -106,40 +108,19 @@ public class SwiftyPing: NSObject {
             guard let address = socketAddress else { return nil }
             return String(cString: inet_ntoa(address.sin_addr), encoding: .ascii)
         }
-        
+
         /// Resolves the `host`.
-        public static func getIPv4AddressFromHost(host: String) throws -> Data {
-            var streamError = CFStreamError()
-            let cfhost = CFHostCreateWithName(nil, host as CFString).takeRetainedValue()
-            let status = CFHostStartInfoResolution(cfhost, .addresses, &streamError)
-            
-            var data: Data?
-            if !status {
-                if Int32(streamError.domain) == kCFStreamErrorDomainNetDB {
-                    throw PingError.addressLookupError
-                } else {
-                    throw PingError.unknownHostError
-                }
-            } else {
-                var success: DarwinBoolean = false
-                guard let addresses = CFHostGetAddressing(cfhost, &success)?.takeUnretainedValue() as? [Data] else {
-                    throw PingError.hostNotFound
-                }
-                
-                for address in addresses {
-                    let addrin = address.socketAddress
-                    if address.count >= MemoryLayout<sockaddr>.size && addrin.sa_family == UInt8(AF_INET) {
-                        data = address
-                        break
+        public static func getIPv4AddressFromHost(host: String) async throws -> Data {
+            try await withCheckedThrowingContinuation { continuation in
+                HostResolver.resolveIPv4Address(for: host) { result in
+                    switch result {
+                    case .success(let data):
+                        continuation.resume(returning: data)
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
                     }
                 }
-                
-                if data?.count == 0 || data == nil {
-                    throw PingError.hostNotFound
-                }
             }
-            guard let returnData = data else { throw PingError.unknownHostError }
-            return returnData
         }
 
     }
@@ -833,5 +814,65 @@ public extension Data {
     /// Expresses a chunk of data as an internet-style socket address.
     var socketAddressInternet: sockaddr_in {
         return withUnsafeBytes { $0.load(as: sockaddr_in.self) }
+    }
+}
+
+extension Destination {
+    public static func getIPv4AddressFromHost(host: String) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            HostResolver.resolveIPv4Address(for: host) { result in
+                continuation.resume(with: result)
+            }
+        }
+    }
+}
+
+enum HostResolutionError: Error {
+    case noAddressFound
+    case resolutionFailed(Error)
+}
+
+class HostResolver {
+    /// Asynchronously resolves a hostname to an IPv4 address in Data form
+    static func getIPv4AddressFromHost(
+        hostname: String,
+        completion: @escaping (Result<Data, Error>) -> Void
+    ) {
+        // Force IPv4
+        let params = NWParameters.tcp
+        if let ipOptions = params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
+            ipOptions.version = .v4
+        }
+        
+        let connection = NWConnection(host: NWEndpoint.Host(hostname), port: 80, using: params)
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                // DNS resolved
+                if let endpoint = connection.currentPath?.remoteEndpoint,
+                   case let .hostPort(resolvedHost, _) = endpoint {
+                    let ipString = resolvedHost.debugDescription
+                    var addr = in_addr()
+                    let result = inet_pton(AF_INET, ipString, &addr)
+                    if result == 1 {
+                        let data = Data(bytes: &addr, count: MemoryLayout<in_addr>.size)
+                        completion(.success(data))
+                    } else {
+                        completion(.failure(HostResolutionError.noAddressFound))
+                    }
+                } else {
+                    completion(.failure(HostResolutionError.noAddressFound))
+                }
+                connection.cancel()
+                
+            case .failed(let error):
+                completion(.failure(HostResolutionError.resolutionFailed(error)))
+                connection.cancel()
+                
+            default:
+                break
+            }
+        }
+        connection.start(queue: .global(qos: .default))
     }
 }
