@@ -872,7 +872,12 @@ class HostResolver {
                     var addr = in_addr()
                     let result = inet_pton(AF_INET, ipString, &addr)
                     if result == 1 {
-                        let data = Data(bytes: &addr, count: MemoryLayout<in_addr>.size)
+                        var addr_in = sockaddr_in()
+                        addr_in.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+                        addr_in.sin_family = sa_family_t(AF_INET)
+                        addr_in.sin_port = 0  // Port is not used for ping
+                        addr_in.sin_addr = addr
+                        let data = Data(bytes: &addr_in, count: MemoryLayout<sockaddr_in>.size)
                         completion(.success(data))
                     } else {
                         completion(.failure(HostResolutionError.noAddressFound))
