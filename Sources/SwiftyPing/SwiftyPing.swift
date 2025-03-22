@@ -544,9 +544,19 @@ public class SwiftyPing: NSObject {
     
     // MARK: - Socket callback
     private func socket(socket: CFSocket, didReadData data: Data?) {
-        if killswitch { return }
-        
+        if let data = data {
+            print("Received data: \(data.count) bytes")
+        } else {
+            print("Received nil data")
+        }
         guard let data = data else { return }
+        
+        // Check that we have at least enough data for an IP header.
+        guard data.count >= MemoryLayout<IPHeader>.size else {
+            print("Received data is too short for an IPHeader: \(data.count) bytes")
+            return
+        }
+        
         var validationError: PingError? = nil
         
         do {
@@ -561,16 +571,20 @@ public class SwiftyPing: NSObject {
         timeoutTimer?.invalidate()
         var ipHeader: IPHeader? = nil
         if validationError == nil {
-            ipHeader = data.withUnsafeBytes({ $0.load(as: IPHeader.self) })
+            // At this point, validateResponse() should have ensured that the data is large enough.
+            ipHeader = data.withUnsafeBytes { $0.load(as: IPHeader.self) }
         }
-        let response = PingResponse(identifier: identifier,
-                                    ipAddress: destination.ip,
-                                    sequenceNumber: sequenceIndex,
-                                    trueSequenceNumber: trueSequenceIndex,
-                                    duration: timeIntervalSinceStart,
-                                    error: validationError,
-                                    byteCount: data.count,
-                                    ipHeader: ipHeader)
+        
+        let response = PingResponse(
+            identifier: identifier,
+            ipAddress: destination.ip,
+            sequenceNumber: sequenceIndex,
+            trueSequenceNumber: trueSequenceIndex,
+            duration: timeIntervalSinceStart,
+            error: validationError,
+            byteCount: data.count,
+            ipHeader: ipHeader
+        )
         isPinging = false
         informObserver(of: response)
         
@@ -626,16 +640,27 @@ public class SwiftyPing: NSObject {
     }
         
     private func icmpHeaderOffset(of packet: Data) -> Int? {
-        if packet.count >= MemoryLayout<IPHeader>.size + MemoryLayout<ICMPHeader>.size {
-            let ipHeader = packet.withUnsafeBytes({ $0.load(as: IPHeader.self) })
-            if ipHeader.versionAndHeaderLength & 0xF0 == 0x40 && ipHeader.protocol == IPPROTO_ICMP {
-                let headerLength = (Int(ipHeader.versionAndHeaderLength) & 0x0F) * MemoryLayout<UInt32>.size
-                if packet.count >= headerLength + MemoryLayout<ICMPHeader>.size {
-                    return headerLength
-                }
-            }
+        // Ensure the packet is long enough for both headers.
+        guard packet.count >= MemoryLayout<IPHeader>.size + MemoryLayout<ICMPHeader>.size else {
+            return nil
         }
-        return nil
+        // Safely load the IP header.
+        let ipHeader: IPHeader = packet.withUnsafeBytes { $0.load(as: IPHeader.self) }
+        
+        // Check that it’s an IPv4 header and that the protocol is ICMP.
+        guard ipHeader.versionAndHeaderLength & 0xF0 == 0x40, ipHeader.protocol == IPPROTO_ICMP else {
+            return nil
+        }
+        
+        // Compute the header length: lower 4 bits * 4.
+        let headerLength = (Int(ipHeader.versionAndHeaderLength) & 0x0F) * MemoryLayout<UInt32>.size
+        
+        // Ensure the packet is long enough to contain the entire IP header plus ICMP header.
+        guard packet.count >= headerLength + MemoryLayout<ICMPHeader>.size else {
+            return nil
+        }
+        
+        return headerLength
     }
     
     private func convert(payload: uuid_t) -> [UInt8] {
