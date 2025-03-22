@@ -629,7 +629,7 @@ public class SwiftyPing: NSObject {
         if packet.count >= MemoryLayout<IPHeader>.size + MemoryLayout<ICMPHeader>.size {
             let ipHeader = packet.withUnsafeBytes({ $0.load(as: IPHeader.self) })
             if ipHeader.versionAndHeaderLength & 0xF0 == 0x40 && ipHeader.protocol == IPPROTO_ICMP {
-                let headerLength = Int(ipHeader.versionAndHeaderLength) & 0x0F * MemoryLayout<UInt32>.size
+                let headerLength = (Int(ipHeader.versionAndHeaderLength) & 0x0F) * MemoryLayout<UInt32>.size
                 if packet.count >= headerLength + MemoryLayout<ICMPHeader>.size {
                     return headerLength
                 }
