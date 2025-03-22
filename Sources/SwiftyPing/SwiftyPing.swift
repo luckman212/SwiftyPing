@@ -826,8 +826,8 @@ enum HostResolutionError: Error {
 
 class HostResolver {
     /// Asynchronously resolves a hostname to an IPv4 address in Data form
-    static func getIPv4AddressFromHost(
-        hostname: String,
+    static func resolveIPv4Address(
+        for hostname: String,
         completion: @escaping (Result<Data, Error>) -> Void
     ) {
         // Force IPv4
