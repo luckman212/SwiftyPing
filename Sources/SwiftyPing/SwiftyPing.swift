@@ -342,6 +342,9 @@ public class SwiftyPing: NSObject {
         if isPinging || killswitch {
             return
         }
+
+        print("DEBUG: Sending ping packet, sequence \(sequenceIndex) at \(Date())")
+
         isPinging = true
         sequenceStart = Date()
         
@@ -354,7 +357,10 @@ public class SwiftyPing: NSObject {
             do {
                 let icmpPackage = try self.createICMPPackage(identifier: UInt16(self.identifier), sequenceNumber: UInt16(self.sequenceIndex))
                 
-                guard let socket = self.socket else { return }
+                guard let socket = self.socket else {
+                    print("DEBUG: Socket is nil; cannot send ping")
+                    return
+                }
                 let socketError = CFSocketSendData(socket, address as CFData, icmpPackage as CFData, self.configuration.timeoutInterval)
 
                 if socketError != .success {
@@ -377,9 +383,10 @@ public class SwiftyPing: NSObject {
                     self.erroredIndices.append(Int(self.sequenceIndex))
                     self.isPinging = false
                     self.informObserver(of: response)
-                    
+                    print("DEBUG: Ping packet sent but error occurred: \(String(describing: error))")
                     return self.scheduleNextPing()
                 }
+                print("DEBUG: Ping packet sent successfully, sequence \(self.sequenceIndex)")
             } catch {
                 let pingError: PingError
                 if let err = error as? PingError {
@@ -398,7 +405,7 @@ public class SwiftyPing: NSObject {
                 self.erroredIndices.append(Int(self.sequenceIndex))
                 self.isPinging = false
                 self.informObserver(of: response)
-                
+                print("DEBUG: Failed to send ping packet, sequence \(self.sequenceIndex), error: \(pingError)")
                 return self.scheduleNextPing()
             }
         }
@@ -422,6 +429,8 @@ public class SwiftyPing: NSObject {
         erroredIndices.append(Int(sequenceIndex))
         self.isPinging = false
         informObserver(of: response)
+
+        print("DEBUG: Ping timed out for sequence \(sequenceIndex) after \(timeIntervalSinceStart) seconds")
 
         incrementSequenceIndex()
         scheduleNextPing()
@@ -545,9 +554,9 @@ public class SwiftyPing: NSObject {
     // MARK: - Socket callback
     private func socket(socket: CFSocket, didReadData data: Data?) {
         if let data = data {
-            print("Received data: \(data.count) bytes")
+            print("DEBUG: Socket received data of size \(data.count) bytes")
         } else {
-            print("Received nil data")
+            print("DEBUG: Socket received nil data")
         }
         guard let data = data else { return }
         
